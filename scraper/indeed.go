@@ -3,6 +3,7 @@ package scraper
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/PuerkitoBio/goquery"
 	"io"
 	"jobscope/models"
 	"net/http"
@@ -101,9 +102,118 @@ func (i *IndeedScraper) scrapeJobDetail(jobKey string) (models.JobPosting, error
 }
 
 func (i *IndeedScraper) scrapeSearchResult(searchURL string) (*SearchResults, error) {
+	req, err := http.NewRequest("GET", searchURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", i.userAgent)
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	doc, err := goquery.NewDocumentFromReader(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	var jobKeys []string
+	doc.Find("[data-jk]").Each(func(i int, s *goquery.Selection) {
+		if jobKey, exists := s.Attr("data-jk"); exists && jobKey != "" {
+			jobKeys = append(jobKeys, jobKey)
+		}
+	})
+
+	jobKeys = removeDuplicates(jobKeys)
+
+	if len(jobKeys) == 0 {
+		return nil, fmt.Errorf("no job keys found in search results")
+	}
+
+	return &SearchResults{JobKeys: jobKeys}, nil
+}
+
+func removeDuplicates(jobKeys []string) []string {
+	seen := make(map[string]bool)
+	var result []string
+
+	for _, jobKey := range jobKeys {
+		if !seen[jobKey] {
+			seen[jobKey] = true
+			result = append(result, jobKey)
+		}
+	}
+
+	return result
+}
+
+func getStringField(data map[string]interface{}, key string) string {
+	if value, ok := data[key]; ok {
+		if str, ok := value.(string); ok {
+			return str
+		}
+	}
+	return ""
 }
 
 func (i *IndeedScraper) parseJobFromData(data map[string]interface{}) (models.JobPosting, error) {
+	req, err := http.NewRequest("GET", searchURL, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("User-Agent", i.userAgent)
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	data, err := i.extractInitialData(string(body))
+	if err != nil {
+		return nil, err
+	}
+
+	jobKeys, err := i.extractJobKeysFromSearchData(data)
+	if err != nil {
+		return nil, err
+	}
+
+	return &SearchResults{Jobkeys: jobkeys}, nil
+}
+
+func (i *IndeedScraper) extractJobKeysFromSearchData(data map[string]interface{}) ([]string, error) {
+	var jobKeys []string
+
+	if metaData, ok := data["metaData"].(map[string]interface{}); ok {
+		if mosaicModel, ok := metaData["mosaicProviderJobCardsModel"].(map[string]interface{}); ok {
+			if results, ok := mosaicModel["results"].([]interface{}); ok {
+				for _, result := range results {
+					if jobCard, ok := result.(map[string]interface{}); ok {
+						if jobKey, ok := jobCard["jobkey"].(string); ok {
+							jobKeys = append(jobKeys, jobKey)
+						}
+					}
+				}
+			}
+		}
+	}
+
+	if len(jobKeys) == 0 {
+		return nil, fmt.Errorf("no job keys found in search results")
+	}
+
+	return jobKeys, nil
 }
 
 func NewIndeedScraper() *IndeedScraper {

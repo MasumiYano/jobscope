@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"jobscope/scraper"
 	"os"
 )
 
@@ -18,5 +19,16 @@ func main() {
 		fmt.Println("Error: --job is required")
 		flag.Usage()
 		os.Exit(1)
+	}
+
+	if *job == "indeed" {
+		fmt.Println("Running Indeed scraper...")
+		scraper := scraper.NewIndeedScraper()
+		jobs, err := scraper.SearchJobs(*job, *location, *level, *limit)
+
+		if err != nil {
+			fmt.Printf("Error scraping jobs: %v\n", err)
+			os.Exit(1)
+		}
 	}
 }
