@@ -12,7 +12,7 @@ func main() {
 	location := flag.String("location", "vancouver", "Job location")
 	level := flag.String("level", "junior", "Experience level")
 	limit := flag.Int("limit", 20, "Maximum number of results")
-	output := flag.String("output", "jobs.json", "Output JSON file")
+	// output := flag.String("output", "jobs.json", "Output JSON file")
 	flag.Parse()
 
 	if *job == "" {
@@ -21,14 +21,17 @@ func main() {
 		os.Exit(1)
 	}
 
-	if *job == "indeed" {
-		fmt.Println("Running Indeed scraper...")
-		scraper := scraper.NewIndeedScraper()
-		jobs, err := scraper.SearchJobs(*job, *location, *level, *limit)
+	fmt.Println("Running Indeed scraper")
+	scraper := scraper.NewIndeedScraper()
+	jobs, err := scraper.SearchJobs(*job, *location, *level, *limit)
 
-		if err != nil {
-			fmt.Printf("Error scraping jobs: %v\n", err)
-			os.Exit(1)
-		}
+	if err != nil {
+		fmt.Printf("Error scraping jobs: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("Found %d jobs:\n", len(jobs))
+	for _, job := range jobs {
+		fmt.Printf("- %s at %s\n", job.Title, job.Company)
 	}
 }

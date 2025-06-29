@@ -160,36 +160,28 @@ func getStringField(data map[string]interface{}, key string) string {
 }
 
 func (i *IndeedScraper) parseJobFromData(data map[string]interface{}) (models.JobPosting, error) {
-	req, err := http.NewRequest("GET", searchURL, nil)
-	if err != nil {
-		return nil, err
+	jobInfoWrapper, ok := data["jobInfoWrapperModel"].(map[string]interface{})
+	if !ok {
+		return models.JobPosting{}, fmt.Errorf("jobInfoWrapperModel not found")
 	}
 
-	req.Header.Set("User-Agent", i.userAgent)
-
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
+	jobInfo, ok := jobInfoWrapper["jobInfoModel"].(map[string]interface{})
+	if !ok {
+		return models.JobPosting{}, fmt.Errorf("jobInfoModel not found")
 	}
 
-	data, err := i.extractInitialData(string(body))
-	if err != nil {
-		return nil, err
+	job := models.JobPosting{
+		Title:       getStringField(jobInfo, "jobTitle"),
+		Company:     getStringField(jobInfo, "companyName"),
+		Location:    getStringField(jobInfo, "formattedLocation"),
+		Salary:      getStringField(jobInfo, "salary"),
+		Description: getStringField(jobInfo, "sanitizedJobDescription"),
+		PostedDate:  getStringField(jobInfo, "pubDate"),
+		URL:         fmt.Sprintf("%s/viewjob?jk=%s", i.baseURL, getStringField(jobInfo, "jobkey")),
+		ScrapedAt:   time.Now(),
 	}
 
-	jobKeys, err := i.extractJobKeysFromSearchData(data)
-	if err != nil {
-		return nil, err
-	}
-
-	return &SearchResults{Jobkeys: jobkeys}, nil
+	return job, nil
 }
 
 func (i *IndeedScraper) extractJobKeysFromSearchData(data map[string]interface{}) ([]string, error) {
