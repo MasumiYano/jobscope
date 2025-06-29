@@ -7,7 +7,9 @@ import (
 	"jobscope/models"
 	"net/http"
 	"net/url"
+	"os"
 	"regexp"
+	"strings"
 	"time"
 )
 
@@ -22,6 +24,11 @@ type SearchResults struct {
 
 func (i *IndeedScraper) SearchJobs(jobTitle, location, level string, limit int) ([]models.JobPosting, error) {
 	searchURL := i.buildSearchURL(jobTitle, location, level, limit)
+	err := i.debugResponse(searchURL)
+	if err != nil {
+		fmt.Printf("Debug falied: %v\n", err)
+	}
+
 	searchResults, err := i.scrapeSearchResult(searchURL)
 
 	if err != nil {
@@ -94,6 +101,70 @@ func (i *IndeedScraper) scrapeJobDetail(jobKey string) (models.JobPosting, error
 	}
 
 	return i.parseJobFromData(data)
+}
+
+// Add this debugging function to your indeed.go file
+func (i *IndeedScraper) debugResponse(searchURL string) error {
+	fmt.Printf("🔍 Requesting URL: %s\n", searchURL)
+
+	req, err := http.NewRequest("GET", searchURL, nil)
+	if err != nil {
+		return err
+	}
+
+	// Add more headers to look like a real browser
+	req.Header.Set("User-Agent", i.userAgent)
+	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8")
+	req.Header.Set("Accept-Language", "en-US,en;q=0.5")
+	req.Header.Set("Connection", "keep-alive")
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	fmt.Printf("📡 Response status: %s\n", resp.Status)
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+
+	htmlContent := string(body)
+
+	// Save HTML to file for inspection
+	err = os.WriteFile("debug_search.html", body, 0644)
+	if err != nil {
+		fmt.Printf("⚠️ Could not save debug file: %v\n", err)
+	} else {
+		fmt.Println("💾 Saved HTML response to debug_search.html")
+	}
+
+	fmt.Printf("📄 HTML content length: %d characters\n", len(htmlContent))
+
+	// Check what JavaScript variables exist
+	if strings.Contains(htmlContent, "_initialData") {
+		fmt.Println("✅ Found _initialData in HTML")
+	} else {
+		fmt.Println("❌ _initialData not found in HTML")
+	}
+
+	if strings.Contains(htmlContent, "window.mosaic") {
+		fmt.Println("✅ Found window.mosaic")
+	}
+
+	if strings.Contains(htmlContent, "data-jk") {
+		fmt.Println("✅ Found data-jk attributes")
+	}
+
+	// Check if we got blocked
+	if strings.Contains(htmlContent, "blocked") || strings.Contains(htmlContent, "captcha") || strings.Contains(htmlContent, "robot") {
+		fmt.Println("🚫 Possibly blocked by anti-bot detection")
+	}
+
+	return nil
 }
 
 func (i *IndeedScraper) scrapeSearchResult(searchURL string) (*SearchResults, error) {
