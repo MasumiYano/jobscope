@@ -3,7 +3,6 @@ package scraper
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/PuerkitoBio/goquery"
 	"io"
 	"jobscope/models"
 	"net/http"
@@ -44,14 +43,10 @@ func (i *IndeedScraper) SearchJobs(jobTitle, location, level string, limit int) 
 }
 
 func (i *IndeedScraper) buildSearchURL(jobTitle, location, level string, limit int) string {
-	searchPath := "/jobs"
 	params := url.Values{}
 	params.Set("q", jobTitle)
 	params.Set("l", location)
-	if limit > 0 {
-		params.Set("limit", fmt.Sprintf("%d", limit))
-	}
-	return i.baseURL + searchPath + "?" + params.Encode()
+	return i.baseURL + "/jobs?" + params.Encode()
 }
 
 func (i *IndeedScraper) extractInitialData(htmlContent string) (map[string]interface{}, error) {
@@ -115,22 +110,19 @@ func (i *IndeedScraper) scrapeSearchResult(searchURL string) (*SearchResults, er
 	}
 	defer resp.Body.Close()
 
-	doc, err := goquery.NewDocumentFromReader(resp.Body)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
 	}
 
-	var jobKeys []string
-	doc.Find("[data-jk]").Each(func(i int, s *goquery.Selection) {
-		if jobKey, exists := s.Attr("data-jk"); exists && jobKey != "" {
-			jobKeys = append(jobKeys, jobKey)
-		}
-	})
+	data, err := i.extractInitialData(string(body))
+	if err != nil {
+		return nil, err
+	}
 
-	jobKeys = removeDuplicates(jobKeys)
-
-	if len(jobKeys) == 0 {
-		return nil, fmt.Errorf("no job keys found in search results")
+	jobKeys, err := i.extractJobKeysFromSearchData(data)
+	if err != nil {
+		return nil, err
 	}
 
 	return &SearchResults{JobKeys: jobKeys}, nil
@@ -187,9 +179,17 @@ func (i *IndeedScraper) parseJobFromData(data map[string]interface{}) (models.Jo
 func (i *IndeedScraper) extractJobKeysFromSearchData(data map[string]interface{}) ([]string, error) {
 	var jobKeys []string
 
+	fmt.Printf("Top level keys: %v\n", getKeys(data))
+
 	if metaData, ok := data["metaData"].(map[string]interface{}); ok {
+		fmt.Printf("Metadata keys: %v\n", getKeys(metaData))
+
 		if mosaicModel, ok := metaData["mosaicProviderJobCardsModel"].(map[string]interface{}); ok {
+			fmt.Printf("Mosaicmodel keys: %v\n", getKeys(mosaicModel))
+
 			if results, ok := mosaicModel["results"].([]interface{}); ok {
+				fmt.Printf("Found %d results\n", len(results))
+
 				for _, result := range results {
 					if jobCard, ok := result.(map[string]interface{}); ok {
 						if jobKey, ok := jobCard["jobkey"].(string); ok {
@@ -202,15 +202,24 @@ func (i *IndeedScraper) extractJobKeysFromSearchData(data map[string]interface{}
 	}
 
 	if len(jobKeys) == 0 {
-		return nil, fmt.Errorf("no job keys found in search results")
+		return nil, fmt.Errorf("No job keys found in search results")
 	}
 
 	return jobKeys, nil
 }
 
+func getKeys(m map[string]interface{}) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+
+	return keys
+}
+
 func NewIndeedScraper() *IndeedScraper {
 	return &IndeedScraper{
 		baseURL:   "https://indeed.com",
-		userAgent: "JobScope/1.0",
+		userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
 	}
 }
